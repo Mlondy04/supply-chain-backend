@@ -1,3 +1,4 @@
+//stock-movements.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { StockMovementsService } from './stock-movements.service';

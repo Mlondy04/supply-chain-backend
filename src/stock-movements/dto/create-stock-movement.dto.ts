@@ -12,8 +12,18 @@ export class CreateStockMovementDto {
 
   @IsNotEmpty()
   @IsString()
-  movementType: 'IN' | 'OUT';
+  movementType: 'inbound' | 'outbound' | 'transfer' | 'adjustment';
+
+  @IsNumber()
+  warehouseFromId?: number;
+
+  @IsNumber()
+  warehouseToId?: number;
 
   @IsString()
-  notes?: string;
+  reference?: string | null;
+
+  @IsString()
+  notes?: String;
 }
+

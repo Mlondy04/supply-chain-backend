@@ -6,6 +6,10 @@ export class CreatePurchaseOrderDto {
   @IsNumber()
   supplierId: number;
 
+  @IsOptional()
+  @IsNumber()
+  warehouseId?: number; // <-- add this
+
   @IsArray()
   items: { productId: number; quantity: number }[];
 

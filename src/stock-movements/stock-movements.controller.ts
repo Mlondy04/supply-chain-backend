@@ -1,3 +1,4 @@
+//stock-movements.controller.ts
 import { Controller, Get, Post, Put, Delete, Param, Body } from '@nestjs/common';
 import { StockMovementsService } from './stock-movements.service';
 import { StockMovement } from './entities/stock-movement.entity';

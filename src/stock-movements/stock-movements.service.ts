@@ -1,7 +1,11 @@
+//stock-movements.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { StockMovement } from './entities/stock-movement.entity';
+import { CreateStockMovementDto } from './dto/create-stock-movement.dto';
+import { InventoryItem } from 'src/inventory/entities/inventory-item.entity';
+import { Warehouse } from 'src/warehouses/entities/warehouse.entity';
 
 @Injectable()
 export class StockMovementsService {
@@ -20,8 +24,33 @@ export class StockMovementsService {
     return movement;
   }
 
-  async create(data: Partial<StockMovement>): Promise<StockMovement> {
-    const movement = this.stockRepo.create(data);
+  async create(data: CreateStockMovementDto): Promise<StockMovement> {
+    const movement = new StockMovement();
+    movement.quantity = data.quantity;
+    movement.movementType = data.movementType.toLowerCase(); // normalize
+    movement.reference = data.reference || null;
+    movement.createdBy = "Admin"; // maybe from auth later
+
+    // ✅ fetch related item
+    if (data.inventoryId) {
+      movement.item = await this.stockRepo.manager.findOne(InventoryItem, {
+        where: { id: data.inventoryId },
+      });
+    }
+
+    // ✅ handle warehouses if IDs are provided in DTO
+    if ((data as any).warehouseFromId) {
+      movement.warehouseFrom = await this.stockRepo.manager.findOne(Warehouse, {
+        where: { id: (data as any).warehouseFromId },
+      });
+    }
+
+    if ((data as any).warehouseToId) {
+      movement.warehouseTo = await this.stockRepo.manager.findOne(Warehouse, {
+        where: { id: (data as any).warehouseToId },
+      });
+    }
+
     return this.stockRepo.save(movement);
   }
 

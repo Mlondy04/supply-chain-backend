@@ -1,6 +1,7 @@
 import { Entity, PrimaryGeneratedColumn, Column, ManyToOne, OneToMany, CreateDateColumn } from 'typeorm';
 import { Supplier } from '../../suppliers/entities/supplier.entity';
 import { PurchaseOrderItem } from './purchase-order-item.entity';
+import { Warehouse } from 'src/warehouses/entities/warehouse.entity';
 
 @Entity('purchase_orders')
 export class PurchaseOrder {
@@ -12,6 +13,9 @@ export class PurchaseOrder {
 
   @ManyToOne(() => Supplier, { eager: true })
   supplier: Supplier;
+
+  @ManyToOne(() => Warehouse, { eager: true, nullable: true })
+  warehouse?: Warehouse;   // ← store warehouse as object
 
   @Column({
     type: 'varchar',

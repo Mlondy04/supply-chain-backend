@@ -1,3 +1,4 @@
+// inventory.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -11,24 +12,39 @@ export class InventoryService {
   ) {}
 
   async findAll(): Promise<InventoryItem[]> {
-    return this.inventoryRepo.find();
+    const items = await this.inventoryRepo.find();
+    return items.map(item => ({
+      ...item,
+      totalValue: Number(item.unitPrice ?? 0) * Number(item.quantity ?? 0),
+    }));
   }
 
   async findOne(id: number): Promise<InventoryItem> {
     const item = await this.inventoryRepo.findOneBy({ id });
     if (!item) throw new NotFoundException(`Item with ID ${id} not found`);
-    return item;
+    return {
+      ...item,
+      totalValue: Number(item.unitPrice ?? 0) * Number(item.quantity ?? 0),
+    };
   }
 
   async create(data: Partial<InventoryItem>): Promise<InventoryItem> {
     const item = this.inventoryRepo.create(data);
-    return this.inventoryRepo.save(item);
+    const saved = await this.inventoryRepo.save(item);
+    return {
+      ...saved,
+      totalValue: Number(saved.unitPrice ?? 0) * Number(saved.quantity ?? 0),
+    };
   }
 
   async update(id: number, data: Partial<InventoryItem>): Promise<InventoryItem> {
     await this.findOne(id); // will throw if not found
     await this.inventoryRepo.update(id, { ...data, lastUpdated: new Date() });
-    return this.findOne(id);
+    const updated = await this.findOne(id);
+    return {
+      ...updated,
+      totalValue: Number(updated.unitPrice ?? 0) * Number(updated.quantity ?? 0),
+    };
   }
 
   async remove(id: number): Promise<void> {

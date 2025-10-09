@@ -7,9 +7,13 @@ export class UpdatePurchaseOrderDto {
   supplierId?: number;
 
   @IsOptional()
+  @IsNumber()
+  warehouseId?: number; // <-- add this
+
+  @IsOptional()
   @IsArray()
   items?: {
-    id: number; // <- this must be the PurchaseOrderItem id
+    id: number; // <- PurchaseOrderItem id
     quantity?: number;
     unitPrice?: number;
   }[];

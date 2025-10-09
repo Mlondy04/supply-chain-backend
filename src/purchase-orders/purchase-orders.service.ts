@@ -2,101 +2,160 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PurchaseOrder } from './entities/purchase-order.entity';
-import { CreatePurchaseOrderDto } from './dto/create-purchase-orders.dto';
-import { Supplier } from 'src/suppliers/entities/supplier.entity';
-import { UpdatePurchaseOrderDto } from './dto/update-purchase-orders.dto';
 import { PurchaseOrderItem } from './entities/purchase-order-item.entity';
+import { Supplier } from 'src/suppliers/entities/supplier.entity';
+import { Warehouse } from 'src/warehouses/entities/warehouse.entity';
+import { CreatePurchaseOrderDto } from './dto/create-purchase-orders.dto';
+import { UpdatePurchaseOrderDto } from './dto/update-purchase-orders.dto';
+import { InventoryItem } from 'src/inventory/entities/inventory-item.entity';
 
 @Injectable()
 export class PurchaseOrdersService {
   constructor(
     @InjectRepository(PurchaseOrder)
     private readonly poRepo: Repository<PurchaseOrder>,
-    @InjectRepository(Supplier) // Assuming Supplier entity is imported correctly
-    private readonly supplierRepository: Repository<any>, // Replace 'any' with actual Supplier entity
-    @InjectRepository(PurchaseOrderItem) // <-- add this
+
+    @InjectRepository(Supplier)
+    private readonly supplierRepo: Repository<Supplier>,
+
+    @InjectRepository(Warehouse)
+    private readonly warehouseRepo: Repository<Warehouse>,
+
+    @InjectRepository(PurchaseOrderItem)
     private readonly poItemRepo: Repository<PurchaseOrderItem>,
+
+    @InjectRepository(InventoryItem)
+    private readonly inventoryRepo: Repository<InventoryItem>,
+
   ) {}
 
-  async findAll(): Promise<PurchaseOrder[]> {
-    return this.poRepo.find({ relations: ['items'] });
+  // Helper to calculate totalAmount
+  private calculateTotalAmount(items: PurchaseOrderItem[]): number {
+    return items.reduce((sum, item) => sum + item.quantity * Number(item.unitPrice), 0);
   }
 
-  async findOne(id: number): Promise<PurchaseOrder> {
-    const po = await this.poRepo.findOne({
-      where: { id },
-      relations: ['items'],
+  // Get all purchase orders
+  async findAll(): Promise<any[]> {
+    const orders = await this.poRepo.find({
+      relations: ['items', 'items.item', 'supplier', 'warehouse'],
     });
-    if (!po) throw new NotFoundException(`Purchase Order #${id} not found`);
-    return po;
+
+    return orders.map(order => ({
+      ...order,
+      totalAmount: this.calculateTotalAmount(order.items),
+    }));
   }
 
-  // purchase-orders.service.ts
-async createPurchaseOrder(dto: CreatePurchaseOrderDto): Promise<PurchaseOrder> {
-  // 1️⃣ Find supplier
-  const supplier = await this.supplierRepository.findOne({ where: { id: dto.supplierId } });
+  // Get one purchase order
+  async findOne(id: number): Promise<any> {
+    const order = await this.poRepo.findOne({
+      where: { id },
+      relations: ['items', 'items.item', 'supplier', 'warehouse'],
+    });
+
+    if (!order) throw new NotFoundException(`Purchase Order #${id} not found`);
+
+    return {
+      ...order,
+      totalAmount: this.calculateTotalAmount(order.items),
+    };
+  }
+
+  // Create purchase order
+  async createPurchaseOrder(dto: CreatePurchaseOrderDto): Promise<any> {
+  const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } });
   if (!supplier) throw new NotFoundException('Supplier not found');
 
-  // 3️⃣ Create nested PurchaseOrderItem entities
+  let warehouse: Warehouse | null = null;
+  if (dto.warehouseId) {
+    warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
+    if (!warehouse) throw new NotFoundException('Warehouse not found');
+  }
+
+  // Create base purchase order
   const purchaseOrder = this.poRepo.create({
     supplier,
+    warehouse: warehouse ?? undefined,
     status: dto.status || 'pending',
     priority: dto.priority || 'medium',
     poNumber: dto.poNumber || `PO-${Date.now()}`,
     dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
-    items: dto.items.map(i => ({
-      item: { id: i.productId }, // relation by id
-      quantity: i.quantity,
-      unitPrice: 0,
-    })),
   });
 
-  // 4️⃣ Save the purchase order with cascade insert of items
-  return this.poRepo.save(purchaseOrder);
-}
-
-
-
-async updatePurchaseOrder(
-  id: number,
-  dto: UpdatePurchaseOrderDto
-): Promise<PurchaseOrder> {
-  const existing = await this.poRepo.findOne({
-    where: { id },
-    relations: ['items', 'items.item', 'supplier'], // include nested item relation
-  });
-
-  if (!existing) throw new NotFoundException(`Purchase Order #${id} not found`);
-
-  // Update supplier if provided
-  if (dto.supplierId) {
-    const supplier = await this.supplierRepository.findOne({ where: { id: dto.supplierId } });
-    if (!supplier) throw new NotFoundException('Supplier not found');
-    existing.supplier = supplier;
-  }
-
-  // Update items if provided
-  if (dto.items) {
-    dto.items.forEach(updateItem => {
-      const existingItem = existing.items.find(i => i.id === updateItem.id);
-      if (existingItem) {
-        // Only update fields that are provided
-        if (updateItem.quantity !== undefined) existingItem.quantity = updateItem.quantity;
-        if (updateItem.unitPrice !== undefined) existingItem.unitPrice = updateItem.unitPrice;
+  // Attach items with correct unitPrice from InventoryItem
+  purchaseOrder.items = await Promise.all(
+    dto.items.map(async (i) => {
+      const product = await this.inventoryRepo.findOne({ where: { id: i.productId } });
+      if (!product) {
+        throw new NotFoundException(`Item with ID ${i.productId} not found`);
       }
-    });
-  }
 
-  // Update other PO fields if provided
-  if (dto.status !== undefined) existing.status = dto.status;
-  if (dto.priority !== undefined) existing.priority = dto.priority;
-  if (dto.dueDate !== undefined) existing.dueDate = dto.dueDate;
-  if (dto.poNumber !== undefined) existing.poNumber = dto.poNumber;
+      // ✅ Create a PurchaseOrderItem, not just assign InventoryItem
+      const poItem = this.poItemRepo.create({
+        item: product,             // InventoryItem relation
+        quantity: i.quantity,
+        unitPrice: Number(product.unitPrice),
+      });
 
-  return this.poRepo.save(existing); // saves PO + updated items
+      return poItem;
+    }),
+  );
+
+  const savedPO = await this.poRepo.save(purchaseOrder);
+
+  return {
+    ...savedPO,
+    totalAmount: this.calculateTotalAmount(savedPO.items),
+  };
 }
 
 
+
+  // Update purchase order
+  async updatePurchaseOrder(id: number, dto: UpdatePurchaseOrderDto): Promise<any> {
+    const existing = await this.poRepo.findOne({
+      where: { id },
+      relations: ['items', 'items.item', 'supplier', 'warehouse'],
+    });
+
+    if (!existing) throw new NotFoundException(`Purchase Order #${id} not found`);
+
+    if (dto.supplierId) {
+      const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } });
+      if (!supplier) throw new NotFoundException('Supplier not found');
+      existing.supplier = supplier;
+    }
+
+    if (dto.warehouseId) {
+      const warehouse = await this.warehouseRepo.findOne({ where: { id: dto.warehouseId } });
+      if (!warehouse) throw new NotFoundException('Warehouse not found');
+      existing.warehouse = warehouse;
+    }
+
+    if (dto.items) {
+      dto.items.forEach(updateItem => {
+        const existingItem = existing.items.find(i => i.id === updateItem.id);
+        if (existingItem) {
+          if (updateItem.quantity !== undefined) existingItem.quantity = updateItem.quantity;
+          if (updateItem.unitPrice !== undefined) existingItem.unitPrice = updateItem.unitPrice;
+        }
+      });
+    }
+
+    if (dto.status !== undefined) existing.status = dto.status;
+    if (dto.priority !== undefined) existing.priority = dto.priority;
+    if (dto.dueDate !== undefined) existing.dueDate = dto.dueDate;
+    if (dto.poNumber !== undefined) existing.poNumber = dto.poNumber;
+
+    const savedPO = await this.poRepo.save(existing);
+
+    return {
+      ...savedPO,
+      totalAmount: this.calculateTotalAmount(savedPO.items),
+    };
+  }
+
+  // Delete purchase order
   async remove(id: number): Promise<void> {
     const result = await this.poRepo.delete(id);
     if (result.affected === 0) {

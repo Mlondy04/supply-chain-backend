@@ -25,4 +25,6 @@ export class InventoryItem {
 
   @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   lastUpdated: Date;
+
+  totalValue?: number;
 }

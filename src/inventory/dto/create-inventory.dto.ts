@@ -11,8 +11,20 @@ export class CreateInventoryDto {
   sku?: string;
 
   @IsOptional()
+  @IsString()
+  category?: string;   // ✅ matches entity
+
+  @IsOptional()
   @IsNumber()
   quantity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  reorderLevel?: number;  // ✅ also in entity
+
+  @IsOptional()
+  @IsNumber()
+  unitPrice?: number;  // ✅ added for totalValue calculation
 
   @IsOptional()
   @IsString()
